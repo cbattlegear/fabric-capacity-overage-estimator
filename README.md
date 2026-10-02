@@ -7,7 +7,8 @@ Requires Windows PowerShell 5.1 (.NET Framework 4.7.2+) or PowerShell 7 on Windo
 ```powershell
 Install-Module FabricCapacityOverage -Scope CurrentUser
 Connect-AzAccount -Tenant '<tenant-id>'
-Get-FabricCapacityOverageCost -WorkspaceId '<metrics-app-workspace-id>'
+$result = Get-FabricCapacityOverageCost -WorkspaceId '<metrics-app-workspace-id>'
+$result.Capacities | Format-Table CapacityName, EstimatedCost, DataStatus
 ```
 
 Defaults: **14 days** and **0.18 base PAYG per CU-hour**, multiplied by **3**. Optional parameters: `-Days`, `-PricePerCU`, `-SemanticModelId`, and `-Refresh` (off by default).
