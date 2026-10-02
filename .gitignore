@@ -1,0 +1,4 @@
+.build/
+TestResults.xml
+coverage.xml
+*.nupkg

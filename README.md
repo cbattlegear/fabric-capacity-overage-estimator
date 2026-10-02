@@ -1,41 +1,49 @@
-# Fabric capacity overage estimator
+# FabricCapacityOverage
 
-A standalone PowerShell script that estimates additional Fabric capacity overage costs using the semantic model behind the Fabric Capacity Metrics App.
+A PowerShell module estimating **additional** Fabric capacity overage costs from
+the Capacity Metrics App. Same-observed-workload planning estimates, **not invoice
+predictions**. Default output is an object with totals, `Capacities` and `Daily`.
 
-## Prerequisites
-
-- PowerShell 5.1 or later.
-- [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) or the [Az.Accounts PowerShell module](https://learn.microsoft.com/powershell/azure/install-azps) for authentication.
-- A configured Fabric Capacity Metrics App and its **workspace ID**.
-- Read and Build permission on the semantic model, with the tenant's **Dataset Execute Queries REST API** setting enabled. The app's data-source credentials must have access to the monitored capacities.
-- Model Write permission is needed to refresh the model or read its refresh history.
-
-No Power BI modules, XMLA client libraries, or other dependencies are required.
-
-## Run
-
-Sign in with `az login --allow-no-subscriptions` or `Connect-AzAccount`, using the tenant containing the app.
-
-From the folder containing the script:
+**Prerequisites:** PowerShell 7 on Windows or Windows PowerShell 5.1 (.NET Framework
+4.7.2+); mandatory **Az.Accounts 5.5.3+**; a configured Metrics App workspace;
+model Read/Build permission and the tenant Execute Queries setting. The app's
+data-source credentials need capacity-admin access. Model Write permission is
+needed for refresh history and explicit refresh. No full Az bundle, Power BI
+module, XMLA/ADOMD library or signing dependency.
 
 ```powershell
-.\Get-FabricCapacityOverageCost.ps1 -WorkspaceId '<metrics-app-workspace-id>'
+# Gallery installation, once a release is published (not published by this migration).
+Install-Module FabricCapacityOverage -Scope CurrentUser
+Import-Module FabricCapacityOverage
+
+# Alternatively, import this checkout locally.
+Install-Module Az.Accounts -MinimumVersion 5.5.3 -Scope CurrentUser
+Import-Module .\FabricCapacityOverage\FabricCapacityOverage.psd1
+
+Connect-AzAccount -Tenant '<tenant-id>'
+$result = Get-FabricCapacityOverageCost -WorkspaceId '<metrics-app-workspace-guid>'
+$result.Capacities | Format-Table CapacityName, EstimatedCost, DataStatus
 ```
 
-The script discovers the semantic model and analyzes all visible F-SKU capacities. Defaults: **14 days** and a base PAYG price of **0.18 per CU-hour**, multiplied by **3** for an overage price of **0.54 per CU-hour**.
+Only `WorkspaceId` is required. Defaults: `Days = 14` (range 1-14),
+`PricePerCU = 0.18` **BASE PAYG CU-hour price** (internally multiplied by 3),
+optional `SemanticModelId`, and `Refresh = false`. Original parameter aliases
+and common `WhatIf`/`Confirm` parameters are retained.
 
 ```powershell
-# Override the number of days and BASE price per CU-hour.
-.\Get-FabricCapacityOverageCost.ps1 -WorkspaceId '<workspace-id>' -Days 7 -PricePerCU 0.15
-
-# Explicitly refresh the model and wait for completion before calculating.
-.\Get-FabricCapacityOverageCost.ps1 -WorkspaceId '<workspace-id>' -Refresh
+Get-FabricCapacityOverageCost -WorkspaceId '<workspace-guid>' -Days 7 -PricePerCU 0.15
+Get-FabricCapacityOverageCost -WorkspaceId '<workspace-guid>' -Refresh -Confirm
+Get-FabricCapacityOverageCost -WorkspaceId '<workspace-guid>' -Refresh -WhatIf
+Get-Help Get-FabricCapacityOverageCost -Full
 ```
 
-Refresh is **off by default**. Warnings flag model refreshes or metrics data older than 12 hours. Use `-SemanticModelId '<model-id>'` if automatic model discovery is ambiguous.
+Refresh is opt-in; skipped/declined refresh produces **no costs**. Freshness
+strictly over 12 hours warns. Missing capacity data means **null totals**, not
+zero. Optional authenticated Azure CLI is tried before Az.Accounts; Az.Accounts
+must still be installed. Import itself does not authenticate or call services.
 
-This is a **same-observed-workload what-if estimate**, not an invoice prediction. See [calculation details and limitations](docs/calculation.md), or run `Get-Help .\Get-FabricCapacityOverageCost.ps1 -Full` for more options and output examples.
-
-## License
-
-[MIT](LICENSE).
+The root `Get-FabricCapacityOverageCost.ps1` remains a thin compatibility launcher:
+it requires the adjacent module folder and **is no longer standalone**.
+See [calculations](docs/calculation.md), [examples](examples),
+[testing/packaging](docs/development.md), and [signing setup](docs/signing.md).
+Linux/macOS are not tested. [MIT](LICENSE), also included in the module package.
