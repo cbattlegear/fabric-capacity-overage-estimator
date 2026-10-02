@@ -113,25 +113,75 @@ Describe 'Exact Active Public Trust resource verification' {
         { Test-ReleaseSigningResource -Configuration $script:Configuration -Account $script:Account -CertificateProfile $script:CertificateProfile } | Should -Not -Throw
     }
 
-    It 'rejects profile field <Field> with <Value>' -TestCases @(
-        @{ Field = 'profileType'; Value = 'PublicTrustTest' },
-        @{ Field = 'profileType'; Value = 'PrivateTrust' },
-        @{ Field = 'status'; Value = 'Suspended' },
-        @{ Field = 'status'; Value = 'Disabled' },
-        @{ Field = 'identityValidationId'; Value = '' },
-        @{ Field = 'provisioningState'; Value = 'Failed' }
+    It 'accepts ARM type and resource-ID casing without changing trust/status requirements: <Case>' -TestCases @(
+        @{ Case = 'lowercase'; AccountType = 'microsoft.codesigning/codesigningaccounts'; ProfileType = 'microsoft.codesigning/codesigningaccounts/certificateprofiles' },
+        @{ Case = 'mixed'; AccountType = 'mIcRoSoFt.CoDeSiGnInG/CoDeSiGnInGaCcOuNtS'; ProfileType = 'MICROSOFT.codesigning/CodeSigningAccounts/CertificateProfiles' }
     ) {
-        param($Field, $Value)
+        param($AccountType, $ProfileType)
+        $script:Account.type = $AccountType
+        $script:CertificateProfile.type = $ProfileType
+        $script:Account.id = $script:Account.id.ToUpperInvariant()
+        $script:CertificateProfile.id = $script:CertificateProfile.id.ToLowerInvariant()
+        { Test-ReleaseSigningResource -Configuration $script:Configuration -Account $script:Account -CertificateProfile $script:CertificateProfile } | Should -Not -Throw
+    }
+
+    It 'rejects the wrong ARM provider/resource type with a safe field-specific diagnostic: <Target>' -TestCases @(
+        @{ Target = 'account'; Value = 'Microsoft.Other/codeSigningAccounts'; Pattern = '*account type must be Microsoft.CodeSigning/codeSigningAccounts*' },
+        @{ Target = 'account'; Value = 'Microsoft.CodeSigning/foreignType'; Pattern = '*account type must be Microsoft.CodeSigning/codeSigningAccounts*' },
+        @{ Target = 'profile'; Value = 'Microsoft.Other/codeSigningAccounts/certificateProfiles'; Pattern = '*certificate-profile type must be Microsoft.CodeSigning/codeSigningAccounts/certificateProfiles*' },
+        @{ Target = 'profile'; Value = 'Microsoft.CodeSigning/codeSigningAccounts/foreignType'; Pattern = '*certificate-profile type must be Microsoft.CodeSigning/codeSigningAccounts/certificateProfiles*' }
+    ) {
+        param($Target, $Value, $Pattern)
+        if ($Target -eq 'account') { $script:Account.type = $Value }
+        else { $script:CertificateProfile.type = $Value }
+        { Test-ReleaseSigningResource -Configuration $script:Configuration -Account $script:Account -CertificateProfile $script:CertificateProfile } | Should -Throw $Pattern
+    }
+
+    It 'still rejects foreign account/profile IDs without echoing either configured or returned resource IDs: <Target>' -TestCases @(
+        @{ Target = 'account'; Pattern = '*account resource ID must match the exact configured account*' },
+        @{ Target = 'profile'; Pattern = '*certificate-profile resource ID must match the exact configured profile*' }
+    ) {
+        param($Target, $Pattern)
+        if ($Target -eq 'account') { $script:Account.id += '-foreign' }
+        else { $script:CertificateProfile.id += '-foreign' }
+        $message = try {
+            Test-ReleaseSigningResource -Configuration $script:Configuration -Account $script:Account -CertificateProfile $script:CertificateProfile
+        }
+        catch { $_.Exception.Message }
+        $message | Should -BeLike $Pattern
+        $message | Should -Not -Match '/subscriptions/|fixture-account|fixture-profile|identityValidationId'
+    }
+
+    It 'rejects profile field <Field> with <Value>' -TestCases @(
+        @{ Field = 'profileType'; Value = 'PublicTrustTest'; Pattern = '*profileType must be production PublicTrust*' },
+        @{ Field = 'profileType'; Value = 'PrivateTrust'; Pattern = '*profileType must be production PublicTrust*' },
+        @{ Field = 'profileType'; Value = 'publictrust'; Pattern = '*profileType must be production PublicTrust*' },
+        @{ Field = 'status'; Value = 'Suspended'; Pattern = '*status must be Active*' },
+        @{ Field = 'status'; Value = 'Disabled'; Pattern = '*status must be Active*' },
+        @{ Field = 'status'; Value = 'active'; Pattern = '*status must be Active*' },
+        @{ Field = 'identityValidationId'; Value = ''; Pattern = '*identityValidationId must be nonempty*' },
+        @{ Field = 'provisioningState'; Value = 'Failed'; Pattern = '*certificate-profile provisioningState must be Succeeded*' },
+        @{ Field = 'provisioningState'; Value = 'succeeded'; Pattern = '*certificate-profile provisioningState must be Succeeded*' }
+    ) {
+        param($Field, $Value, $Pattern)
         $script:CertificateProfile.properties.$Field = $Value
-        { Test-ReleaseSigningResource -Configuration $script:Configuration -Account $script:Account -CertificateProfile $script:CertificateProfile } | Should -Throw '*Active*production PublicTrust*'
+        { Test-ReleaseSigningResource -Configuration $script:Configuration -Account $script:Account -CertificateProfile $script:CertificateProfile } | Should -Throw $Pattern
+    }
+
+    It 'identifies unavailable account provisioning and malformed authoritative endpoints safely' {
+        $script:Account.properties.provisioningState = 'Failed'
+        { Test-ReleaseSigningResource -Configuration $script:Configuration -Account $script:Account -CertificateProfile $script:CertificateProfile } | Should -Throw '*account provisioningState must be Succeeded*'
+        $script:Account.properties.provisioningState = 'Succeeded'
+        $script:Account.properties.accountUri = 'http://eus.codesigning.azure.net/'
+        { Test-ReleaseSigningResource -Configuration $script:Configuration -Account $script:Account -CertificateProfile $script:CertificateProfile } | Should -Throw '*account accountUri must be a valid HTTPS regional*'
     }
 
     It 'rejects a valid but wrong regional endpoint or account/profile identity' {
         $script:Account.properties.accountUri = 'https://weu.codesigning.azure.net/'
-        { Test-ReleaseSigningResource -Configuration $script:Configuration -Account $script:Account -CertificateProfile $script:CertificateProfile } | Should -Throw
+        { Test-ReleaseSigningResource -Configuration $script:Configuration -Account $script:Account -CertificateProfile $script:CertificateProfile } | Should -Throw '*accountUri must match the exact configured regional endpoint*'
         $script:Account.properties.accountUri = 'https://eus.codesigning.azure.net/'
         $script:CertificateProfile.id += '-foreign'
-        { Test-ReleaseSigningResource -Configuration $script:Configuration -Account $script:Account -CertificateProfile $script:CertificateProfile } | Should -Throw
+        { Test-ReleaseSigningResource -Configuration $script:Configuration -Account $script:Account -CertificateProfile $script:CertificateProfile } | Should -Throw '*certificate-profile resource ID must match the exact configured profile*'
     }
 }
 

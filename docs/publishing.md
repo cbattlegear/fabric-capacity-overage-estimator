@@ -21,6 +21,10 @@ appropriately for Gallery publishing. It is mapped to a process environment
 variable **only in the final publish step**, never written to `GITHUB_ENV`,
 outputs, provenance or summaries. The helper clears it from its process after
 use and sanitizes ambiguous publication errors.
+Publishing-tool restoration exports only the isolated cache directory. Every
+verification/publication entrypoint bootstraps the current host's native module
+path before helper imports; the Gallery publisher resolves PSResourceGet from
+that path without inheriting another edition's built-ins.
 
 This workflow has only `contents: read` and `actions: read`. It has **no**
 `id-token: write`, Azure login, signing action, Azure credentials or signing role.

@@ -144,15 +144,37 @@ function Invoke-ReleaseAzureRead {
 
 function Test-ReleaseSigningResource {
     param([object] $Configuration, [object] $Account, [object] $CertificateProfile)
-    if (-not [string]::Equals($Account.id, $Configuration.AccountId, [System.StringComparison]::OrdinalIgnoreCase) -or
-        -not [string]::Equals($CertificateProfile.id, $Configuration.ProfileId, [System.StringComparison]::OrdinalIgnoreCase) -or
-        $Account.type -cne 'Microsoft.CodeSigning/codeSigningAccounts' -or
-        $CertificateProfile.type -cne 'Microsoft.CodeSigning/codeSigningAccounts/certificateProfiles' -or
-        $Account.properties.provisioningState -cne 'Succeeded' -or $CertificateProfile.properties.provisioningState -cne 'Succeeded' -or
-        $CertificateProfile.properties.profileType -cne 'PublicTrust' -or $CertificateProfile.properties.status -cne 'Active' -or
-        [string]::IsNullOrWhiteSpace($CertificateProfile.properties.identityValidationId) -or
-        (Test-ReleaseEndpoint $Account.properties.accountUri) -cne $Configuration.Endpoint) {
-        throw 'Signing requires the exact available account endpoint and an Active, Succeeded production PublicTrust profile with authoritative identity-validation linkage.'
+    if (-not [string]::Equals($Account.id, $Configuration.AccountId, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Signing account resource ID must match the exact configured account.'
+    }
+    if (-not [string]::Equals($CertificateProfile.id, $Configuration.ProfileId, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Signing certificate-profile resource ID must match the exact configured profile.'
+    }
+    if (-not [string]::Equals($Account.type, 'Microsoft.CodeSigning/codeSigningAccounts', [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Signing account type must be Microsoft.CodeSigning/codeSigningAccounts (ARM type casing is ignored).'
+    }
+    if (-not [string]::Equals($CertificateProfile.type, 'Microsoft.CodeSigning/codeSigningAccounts/certificateProfiles', [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Signing certificate-profile type must be Microsoft.CodeSigning/codeSigningAccounts/certificateProfiles (ARM type casing is ignored).'
+    }
+    if ($Account.properties.provisioningState -cne 'Succeeded') {
+        throw 'Signing account provisioningState must be Succeeded.'
+    }
+    if ($CertificateProfile.properties.provisioningState -cne 'Succeeded') {
+        throw 'Signing certificate-profile provisioningState must be Succeeded.'
+    }
+    if ($CertificateProfile.properties.profileType -cne 'PublicTrust') {
+        throw 'Signing certificate-profile profileType must be production PublicTrust, not PrivateTrust or PublicTrustTest.'
+    }
+    if ($CertificateProfile.properties.status -cne 'Active') {
+        throw 'Signing certificate-profile status must be Active.'
+    }
+    if ([string]::IsNullOrWhiteSpace($CertificateProfile.properties.identityValidationId)) {
+        throw 'Signing certificate-profile identityValidationId must be nonempty authoritative identity-validation linkage.'
+    }
+    try { $endpoint = Test-ReleaseEndpoint $Account.properties.accountUri }
+    catch { throw 'Signing account accountUri must be a valid HTTPS regional codesigning.azure.net root endpoint.' }
+    if ($endpoint -cne $Configuration.Endpoint) {
+        throw 'Signing account accountUri must match the exact configured regional endpoint.'
     }
 }
 

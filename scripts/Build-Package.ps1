@@ -11,13 +11,20 @@ verified signed staging ModulePath; packaging does not modify those bytes.
 [CmdletBinding()]
 param(
     [ValidateNotNullOrEmpty()]
-    [string] $DestinationPath = (Join-Path (Split-Path $PSScriptRoot -Parent) '.build\packages'),
+    [string] $DestinationPath,
 
     [ValidateNotNullOrEmpty()]
-    [string] $ModulePath = (Join-Path (Split-Path $PSScriptRoot -Parent) 'FabricCapacityOverage')
+    [string] $ModulePath
 )
 
+& ([System.IO.Path]::Combine($PSScriptRoot, 'Initialize-DevelopmentEnvironment.ps1'))
 $ErrorActionPreference = 'Stop'
+if (-not $PSBoundParameters.ContainsKey('DestinationPath')) {
+    $DestinationPath = Join-Path (Split-Path $PSScriptRoot -Parent) '.build\packages'
+}
+if (-not $PSBoundParameters.ContainsKey('ModulePath')) {
+    $ModulePath = Join-Path (Split-Path $PSScriptRoot -Parent) 'FabricCapacityOverage'
+}
 $dependencies = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'DevelopmentDependencies.psd1')
 Import-Module Microsoft.PowerShell.PSResourceGet -RequiredVersion $dependencies.'Microsoft.PowerShell.PSResourceGet'
 $modulePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ModulePath)

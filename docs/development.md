@@ -46,7 +46,8 @@ foreach ($name in $dependencies.Keys) {
     Save-PSResource -Name $name -Version $dependencies[$name] -Repository PSGallery -Path $cache -TrustRepository
 }
 Save-PSResource -Name Az.Accounts -Version 5.5.3 -Repository PSGallery -Path $cache -TrustRepository
-$env:PSModulePath = "$cache;$env:PSModulePath"  # Current process only
+$env:FABRIC_CAPACITY_OVERAGE_DEPENDENCY_CACHE = $cache  # Current process/children only
+.\scripts\Initialize-DevelopmentEnvironment.ps1
 ```
 
 These restores download public tools only; they do not sign in, install the Az
@@ -78,8 +79,24 @@ truncation/missing joins, refresh request matching/failure/timeout/WhatIf,
 compatibility forwarding and repeated invocation isolation.
 
 Run the same core command in Windows PowerShell 5.1 and PowerShell 7 on Windows.
-For an inherited development cache, a child Windows PowerShell process can use
-the same `PSModulePath`. Respect organizational execution policies. On the
+Share **only the cache location**, not one edition's entire `PSModulePath`.
+Runner restoration writes `FABRIC_CAPACITY_OVERAGE_DEPENDENCY_CACHE` to
+`GITHUB_ENV`; every validation, packaging and manual release entrypoint calls
+the shared native bootstrap before metadata or helper imports. Each process
+puts its own `$PSHOME\Modules` first, adds the existing cache once, preserves
+ordinary local/custom module scopes, and removes inherited peer-edition
+built-in roots. Utility and Security command metadata must resolve natively.
+A configured missing cache fails explicitly; bootstrap never installs tools.
+
+The signing workflow also initializes its actual Windows PowerShell child
+before evaluating path expressions: a bootstrapped PS7 parent still passes
+PS7 built-in directories to its children. Fresh-process regressions reproduce
+the original contaminated 5.1 data-import failure and cover this nested child,
+both native editions, empty/duplicate paths, and local runs without a cache
+variable or GitHub Actions. Existing local installations/custom module paths
+remain usable when the dedicated cache variable is absent.
+
+Respect organizational execution policies. On the
 migration machine, unsigned scripts needed `-ExecutionPolicy Bypass` **only on
 the test child process**, not `Set-ExecutionPolicy` or an OS/user policy change.
 No Linux/macOS support is asserted. CI repeats the core checks on Windows with

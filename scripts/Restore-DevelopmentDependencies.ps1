@@ -2,6 +2,7 @@
 [CmdletBinding()]
 param([ValidateSet('Validation', 'Publishing')] [string] $Purpose = 'Validation')
 
+& ([System.IO.Path]::Combine($PSScriptRoot, 'Initialize-DevelopmentEnvironment.ps1'))
 $ErrorActionPreference = 'Stop'
 if ($env:GITHUB_ACTIONS -ne 'true' -or [string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
     throw 'Automatic development-tool restoration is limited to an ephemeral GitHub Actions runner.'
@@ -19,4 +20,6 @@ if ($Purpose -eq 'Validation') {
         Save-PSResource -Name $dependency.ModuleName -Version $dependency.ModuleVersion -Repository PSGallery -Path $cache -TrustRepository -Quiet -ErrorAction Stop
     }
 }
-[System.IO.File]::AppendAllText($env:GITHUB_ENV, "PSModulePath=$cache;$env:PSModulePath`n", [System.Text.UTF8Encoding]::new($false))
+$env:FABRIC_CAPACITY_OVERAGE_DEPENDENCY_CACHE = $cache
+& ([System.IO.Path]::Combine($PSScriptRoot, 'Initialize-DevelopmentEnvironment.ps1'))
+[System.IO.File]::AppendAllText($env:GITHUB_ENV, "FABRIC_CAPACITY_OVERAGE_DEPENDENCY_CACHE=$cache`n", [System.Text.UTF8Encoding]::new($false))

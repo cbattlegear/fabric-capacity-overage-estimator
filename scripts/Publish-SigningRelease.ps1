@@ -2,6 +2,7 @@
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
 param()
 
+& ([System.IO.Path]::Combine($PSScriptRoot, 'Initialize-DevelopmentEnvironment.ps1'))
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Release\Release.Helpers.ps1')
 $context = Get-ReleaseContext -Environment (Get-ReleaseEnvironment) -Workflow 'publish-module.yml'

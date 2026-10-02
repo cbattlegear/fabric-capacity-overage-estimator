@@ -10,11 +10,15 @@ and Pester TestDrive for the extracted versioned module installation.
 [CmdletBinding()]
 param(
     [ValidateNotNullOrEmpty()]
-    [string] $DestinationPath = (Join-Path (Split-Path $PSScriptRoot -Parent) '.build\packages')
+    [string] $DestinationPath
 )
 
+& ([System.IO.Path]::Combine($PSScriptRoot, 'Initialize-DevelopmentEnvironment.ps1'))
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+if (-not $PSBoundParameters.ContainsKey('DestinationPath')) {
+    $DestinationPath = Join-Path $root '.build\packages'
+}
 $dependencies = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'DevelopmentDependencies.psd1')
 Import-Module Pester -RequiredVersion $dependencies.Pester
 $package = & (Join-Path $PSScriptRoot 'Build-Package.ps1') -DestinationPath $DestinationPath

@@ -52,6 +52,9 @@ Missing configuration and non-main/nonmanual contexts fail explicitly before
 Azure authentication. Checkout uses only the dispatch's immutable `github.sha`;
 there is no editable ref or path input. Both host test suites, full analyzer,
 manifest/help checks and offline packaging run before creating fresh staging.
+Validation shares only the downloaded dependency-cache location between hosts;
+the shared bootstrap restores each host's native built-in module path, including
+the real PS7-to-Windows PowerShell child, before any metadata/path imports.
 
 Azure authentication is `azure/login` v3 via OIDC. The signing action uses
 **only AzureCliCredential**: Environment, Workload Identity, Managed Identity,
@@ -70,6 +73,12 @@ discovery. It requires:
   `properties.accountUri`. An absent endpoint is an error, not a guessed region.
 - `properties.profileType = PublicTrust`, `properties.status = Active`, and
   nonempty authoritative `properties.identityValidationId`.
+
+ARM resource IDs and type names use ordinal case-insensitive equality, including
+legitimate lowercased `microsoft.codesigning/codesigningaccounts` responses.
+This does not relax provider/type/ID identity, trust/status enums or signature
+checks. Preflight failures identify the specific field and expected requirement
+without printing resource IDs, identity values or raw Azure responses.
 
 The documented stable API exposes the profile's identity-validation linkage;
 it does **not** expose an identity-validation GET collection. Identity IDs are
