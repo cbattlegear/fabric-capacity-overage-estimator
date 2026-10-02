@@ -23,6 +23,10 @@ token or preference state. The original canvas migration source included
 timestamp, refresh and ShouldProcess fixes that were not yet on the old script's
 main branch; those behaviors are covered by committed regression tests.
 
+Release verification helpers live under `scripts\Release\`, outside the shipped
+module. Signing/publishing workflows are separate, manual-only and main-only;
+ordinary test CI has no Azure auth, OIDC write or Gallery credentials.
+
 ## Development dependencies
 
 Pinned development versions are in `scripts\DevelopmentDependencies.psd1`:
@@ -59,8 +63,10 @@ obtain it using the approved development-tool installation method first.
 
 The command validates the real manifest, import/export and help, runs the full
 default analyzer over module/launcher/scripts/tests/examples with **no
-suppressions**, and runs the six core Pester suites. Any analyzer finding or
-failed test terminates validation. Tests use fixed tokens, clocks, HTTP
+suppressions**, and runs the core and release Pester suites. Any analyzer finding or
+failed test terminates validation. Release suites also exercise provenance,
+signature/timestamp/publisher checks, unsafe archives and workflow constraints.
+Tests use fixed tokens, clocks, HTTP
 envelopes and native CLI fixtures: **no actual model queries, login or service
 refreshes**. A custom test host exercises a genuinely declined `Confirm`.
 
@@ -113,10 +119,13 @@ developer profile or patch internal fields to simulate isolation. Native local
 `Publish-PSResource`/`Install-PSResource` testing needs a separately approved
 disposable user/runner environment; it is not performed by these scripts.
 
-Packages and optional reports stay under ignored `.build\` by default. Packaging
-is unsigned and offline, never a publication. For a future approved signed
-release, finalize/sign the staged files first and package without modifying them;
-see [the signing runbook](signing.md). CI has no signing or Gallery publishing.
+Packages and optional reports stay under ignored `.build\` by default. Normal
+development packaging is unsigned and offline, never a publication. The package
+suite also builds real nupkgs from copies with synthetic signature comments and
+mocked certificate results to prove byte preservation; it does not sign code.
+For an approved manual release, finalize/sign staged files first and package
+without modifying them; see [signing](signing.md) and [publishing](publishing.md).
+Ordinary CI has no signing or Gallery publishing.
 
 ## References
 

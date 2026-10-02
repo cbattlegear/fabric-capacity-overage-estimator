@@ -1,119 +1,138 @@
-# Signing and release runbook (not enabled)
+# Manual signing runbook
 
-**Guidance only.** No cloud signing, provisioning, RBAC assignments, repository
-secrets, paid resources or Gallery publication are implemented by this migration.
-The ordinary CI workflow has no Azure login, OIDC write permission, signing job
-or publishing job. The current module is unsigned. Do not assume it will load
-under an organization's AllSigned policy.
+`.github/workflows/sign-module.yml` implements **manual dispatch only**. There
+are no push, tag, PR or automatic publication triggers. This code is committed
+locally; it has **not** been pushed, run, provisioned or configured in Azure or
+GitHub. Source trees stay unsigned. A successful signing run produces an
+immutable release artifact, **not** a Gallery publication.
 
-## Azure Artifact Signing prerequisites
+## External setup required
 
-An owner must separately approve the service, region, subscription and spending.
-For public PowerShell distribution, the account needs **validated Public Trust
-identity** and a production **Public Trust certificate profile**. Private Trust
-and Public Trust Test profiles are not substitutes for public distribution.
+An administrator must separately approve resources/spending and configure:
 
-Use an Entra application/service principal or other supported workload identity
-with narrowly scoped GitHub OIDC federation. Prefer a subject restricted to
-`repo:cbattlegear/fabric-capacity-overage-estimator:environment:<PROTECTED_RELEASE_ENVIRONMENT>`,
-with that environment restricted to approved release tags and reviewers. Validate
-the actual subject/audience in the future release design. Do not create a broad
-repository-wide federation or a long-lived client secret.
+- A production Azure Artifact Signing account in the intended region.
+- **Validated Public Trust identity** and an **Active production Public Trust
+  certificate profile**, not Private Trust or Public Trust Test.
+- An Entra application/service principal with GitHub OIDC federation; no client
+  secret. Issuer: `https://token.actions.githubusercontent.com`; audience:
+  `api://AzureADTokenExchange`; exact subject:
+  `repo:cbattlegear/fabric-capacity-overage-estimator:environment:artifact-signing`.
+- **Artifact Signing Certificate Profile Signer** explicitly assigned at that
+  certificate-profile scope. Owner/Contributor alone do not grant signing.
+- Read permissions for the **exact configured account and profile**. The
+  straightforward option is **Reader at the signing-account scope**, alongside
+  the profile-scoped signing role. Equivalent custom read permissions work;
+  helpers do not insist on a role name or discover accounts across subscriptions.
+- A protected GitHub environment named **`artifact-signing`**, with required
+  reviewers, prevention of self-review where available, and deployment branches
+  restricted to **`main` only**. Configure branch protection for main as well.
 
-The signer needs **Artifact Signing Certificate Profile Signer**, assigned
-explicitly at the intended **certificate-profile scope**. Owner/Contributor alone
-does not grant signing rights. Administrative setup and signing are separate
-privileges. Do not grant subscription-wide signing access for this module.
+This implementation performs no provisioning, federation, grants or environment
+configuration. Set these **environment variables/vars**, not client secrets:
 
-| Placeholder | Owner must supply/verify |
+| `artifact-signing` environment variable | Required value |
 |---|---|
-| `<AZURE_TENANT_ID>` | Tenant containing the approved signing identity |
-| `<AZURE_CLIENT_ID>` | Federated application's client ID |
-| `<AZURE_SUBSCRIPTION_ID>` | Subscription containing the signing account |
-| `<PROTECTED_RELEASE_ENVIRONMENT>` | Protected GitHub release environment and federation subject |
-| `<SIGNING_ENDPOINT>` | Service endpoint matching the account/profile's region |
-| `<SIGNING_ACCOUNT_NAME>` | Approved Artifact Signing account |
-| `<PUBLIC_TRUST_PROFILE_NAME>` | Validated production Public Trust certificate profile |
-| `<STAGED_MODULE_DIRECTORY>` | Final, immutable module content, not tests/development tools |
+| `AZURE_CLIENT_ID` | Federated application's nonempty client GUID |
+| `AZURE_TENANT_ID` | Tenant GUID |
+| `AZURE_SUBSCRIPTION_ID` | Signing account's subscription GUID |
+| `ARTIFACT_SIGNING_RESOURCE_GROUP` | Exact account resource group |
+| `ARTIFACT_SIGNING_ENDPOINT` | Exact HTTPS regional `codesigning.azure.net` root endpoint |
+| `ARTIFACT_SIGNING_ACCOUNT_NAME` | Exact account name |
+| `ARTIFACT_SIGNING_CERTIFICATE_PROFILE` | Exact production Public Trust profile name |
+| `ARTIFACT_SIGNING_CERTIFICATE_SUBJECT` | Expected **full publisher certificate Subject DN**, for example `CN=Contoso Inc, O=Contoso Inc, L=New York, S=New York, C=US` |
 
-## Future protected release flow
+Obtain the expected Subject from the approved validated profile/certificate,
+including its exact formatting. Do not pin a leaf thumbprint: service
+certificates rotate. Configure the **same Subject** in the separate
+`powershell-gallery` environment for publication verification.
 
-1. Approve a protected version tag/environment release, never an ordinary PR.
-2. Restore development dependencies; run tests, analyzer, manifest and package
-   checks. Finalize version, help, documentation and license content.
-3. Stage the final module. Authenticate with OIDC on a supported Windows x64
-   runner (`windows-2022` or `windows-2025`; the action does not support ARM).
-4. Sign **all shipped `.ps1`, `.psm1` and `.psd1` files recursively** using SHA256
-   and RFC3161 timestamping. If distributing the root compatibility launcher
-   separately, sign it too.
-5. Verify file Authenticode status, signer identity and timestamp on Windows;
-   re-import and inspect the final package. No source/content changes after
-   signing; rebuild/re-sign if anything changes.
-6. Package the signed files and approve Gallery publication separately. Gallery
-   credentials are not signing credentials and must not be available to PR jobs.
+## What is validated before signing
 
-The official integrations include SignTool, the GitHub Action and the Gallery
-`ArtifactSigning` module. Any signing module is **development/release-only**, not
-a runtime `RequiredModule` of FabricCapacityOverage.
+Missing configuration and non-main/nonmanual contexts fail explicitly before
+Azure authentication. Checkout uses only the dispatch's immutable `github.sha`;
+there is no editable ref or path input. Both host test suites, full analyzer,
+manifest/help checks and offline packaging run before creating fresh staging.
 
-The following **non-executable documentation fragment** lists verified action
-inputs; it is deliberately not a workflow and has unresolved placeholders:
+Azure authentication is `azure/login` v3 via OIDC. The signing action uses
+**only AzureCliCredential**: Environment, Workload Identity, Managed Identity,
+shared cache, Visual Studio/Code, Azure PowerShell, Developer CLI and browser
+fallbacks are explicitly excluded. Signing dependency caching and trace logging
+are disabled. No Azure auth or OIDC write permissions are added to ordinary CI
+or publication.
 
-```yaml
-# FUTURE protected release only. Not enabled or stored under .github/workflows.
-# Job requires the approved environment and id-token: write, contents: read.
-- uses: azure/login@v3
-  with:
-    client-id: <AZURE_CLIENT_ID>
-    tenant-id: <AZURE_TENANT_ID>
-    subscription-id: <AZURE_SUBSCRIPTION_ID>
-- uses: azure/artifact-signing-action@v2
-  with:
-    endpoint: <SIGNING_ENDPOINT>
-    signing-account-name: <SIGNING_ACCOUNT_NAME>
-    certificate-profile-name: <PUBLIC_TRUST_PROFILE_NAME>
-    files-folder: <STAGED_MODULE_DIRECTORY>
-    files-folder-filter: ps1,psm1,psd1
-    files-folder-recurse: true
-    file-digest: SHA256
-    timestamp-rfc3161: http://timestamp.acs.microsoft.com
-    timestamp-digest: SHA256
-```
+After login, the helper reads exactly the configured account and profile with
+the documented **Microsoft.CodeSigning ARM API `2025-10-13`**, not subscription
+discovery. It requires:
 
-Pin reviewed action commit SHAs when implementing the protected workflow. The
-current documented integration versions are `azure/login@v3` and
-`azure/artifact-signing-action@v2`; check official instructions again before
-enabling them. Do not copy the upstream main-branch-trigger example into this
-repository.
+- Matching account/profile resource IDs and resource types.
+- `provisioningState = Succeeded` for both.
+- The protected endpoint exactly matching the account's authoritative
+  `properties.accountUri`. An absent endpoint is an error, not a guessed region.
+- `properties.profileType = PublicTrust`, `properties.status = Active`, and
+  nonempty authoritative `properties.identityValidationId`.
 
-## Verification and package distinction
+The documented stable API exposes the profile's identity-validation linkage;
+it does **not** expose an identity-validation GET collection. Identity IDs are
+opaque (the official example uses `"123456"`), not assumed to be ARM paths or
+GUIDs. The Active Public Trust profile is the service's authoritative available
+validated-identity-backed signing configuration. No invented identity API,
+cross-account read expansion or claim that account Reader covers an external
+identity-validation resource is made.
 
-Artifact Signing end-entity certificates last **three days**. Timestamping is
-essential for signatures to remain valid after certificate expiry; use the
-service RFC3161 timestamp endpoint above with SHA256.
+## Run signing from GitHub
 
-For a future signed staging directory:
+Only after a separately approved review/merge places the workflows on main and
+external setup is complete:
 
-```powershell
-$signatures = Get-ChildItem -LiteralPath '<STAGED_MODULE_DIRECTORY>' -Recurse -File |
-    Where-Object Extension -in '.ps1', '.psm1', '.psd1' |
-    Get-AuthenticodeSignature
-$signatures | Select-Object Path, Status, SignerCertificate, TimeStamperCertificate
-if (@($signatures | Where-Object { $_.Status -ne 'Valid' -or $null -eq $_.TimeStamperCertificate }).Count -gt 0) {
-    throw 'Release files need valid, timestamped Authenticode signatures.'
-}
-```
+1. Open **Actions → Sign module manually → Run workflow**.
+2. Select **main**. There are no other inputs. Approve the protected environment
+   using its configured reviewers.
+3. Wait for the complete run to succeed. It recursively signs every **shipped**
+   `.ps1`, `.psm1` and `.psd1` in fresh staging after all generated content/tests.
+   `LICENSE` needs no Authenticode. The root compatibility launcher is **excluded
+   from the module package**; it remains unsigned in source.
+4. Read the run summary. Record the **signing run ID**, attempt, source SHA,
+   package SHA256, immutable artifact ID and artifact digest.
+5. Use that **run ID**, not artifact ID, in [manual publication](publishing.md).
 
-Also verify the expected signer/profile and a trusted chain, not just the
-presence of a signature. This is verification guidance, not a signing command.
-Signing only the `.nupkg` NuGet envelope does **not** Authenticode-sign its
-PowerShell files. An optional signed file catalog can cover other package
-content, but does not replace required file signatures.
+The artifact is named
+`FabricCapacityOverage-signed-<RUN_ID>-<RUN_ATTEMPT>` and contains only the signed
+`.nupkg`, `release-provenance.json` and `SHA256SUMS`. Upload is immutable with
+overwrite disabled; retention is seven days. Expired/deleted artifacts require
+a new signing run, never a fallback to a different run.
 
-## Verified references
+## Signed payload verification
+
+Signing uses **SHA256**, **RFC3161
+`http://timestamp.acs.microsoft.com`**, and timestamp digest **SHA256**.
+End-entity certificates last only **three days**; timestamps let correctly
+signed files remain valid after leaf certificate expiry.
+
+Every shipped code file must have `Get-AuthenticodeSignature.Status = Valid`,
+the configured publisher Subject, and a nonnull timestamp certificate. Windows
+performs the trust/signature validation; there is no certificate-check bypass.
+All manifest-listed code is accounted for, including the loader and manifest.
+
+Only then is the exact signed staging folder compressed with PSResourceGet.
+The packed files are safely extracted and checked again before packaged
+manifest processing. Per-file SHA256 values must equal signed staging, and
+packaging must not mutate staging. Provenance binds module name/version/GUID,
+repository, source SHA, run ID/attempt, publisher Subject and package/file hashes.
+No tokens, client secrets or Gallery keys are in artifacts.
+
+Signing the NuGet envelope alone is **not** file Authenticode. No content changes
+are allowed after signing. The module keeps only Az.Accounts as a runtime
+dependency; ArtifactSigning is release-tooling only.
+
+## Action pins and references
+
+All workflow actions use full commit SHAs, resolved from official version tags
+on 2026-10-02 and recorded in `scripts\Release\ActionPins.psd1`. Versions are
+annotated in YAML: checkout v5, Azure login v3.1.0, Artifact Signing v2 and
+upload-artifact v4. Re-resolve/review pins explicitly when upgrading them.
 
 - [Microsoft signing integrations](https://learn.microsoft.com/azure/artifact-signing/how-to-signing-integrations)
-- [Official Artifact Signing Action, inputs and Windows requirements](https://github.com/Azure/artifact-signing-action)
+- [Resources, Public Trust and explicit signing roles](https://learn.microsoft.com/azure/artifact-signing/concept-resources-roles)
+- [Official signing action and inputs](https://github.com/Azure/artifact-signing-action)
 - [Official OIDC guidance](https://github.com/Azure/artifact-signing-action/blob/main/docs/OIDC.md)
-- [Artifact Signing resources and roles](https://learn.microsoft.com/azure/artifact-signing/concept-resources-roles)
-- [Azure PowerShell signing integration](https://learn.microsoft.com/azure/artifact-signing/how-to-signing-integrations#powershell)
+- [Stable ARM account/profile schema](https://github.com/Azure/azure-rest-api-specs/blob/main/specification/codesigning/resource-manager/Microsoft.CodeSigning/CodeSigning/stable/2025-10-13/codeSigningAccount.json)

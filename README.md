@@ -47,3 +47,6 @@ it requires the adjacent module folder and **is no longer standalone**.
 See [calculations](docs/calculation.md), [examples](examples),
 [testing/packaging](docs/development.md), and [signing setup](docs/signing.md).
 Linux/macOS are not tested. [MIT](LICENSE), also included in the module package.
+
+Maintainer releases: [manual signing](docs/signing.md), then separate
+[manual Gallery publication](docs/publishing.md); protected external setup is required.

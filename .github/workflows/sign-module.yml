@@ -1,0 +1,140 @@
+name: Sign module manually
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: artifact-signing-FabricCapacityOverage
+  cancel-in-progress: false
+
+jobs:
+  sign:
+    runs-on: windows-2022
+    environment: artifact-signing
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARTIFACT_SIGNING_RESOURCE_GROUP: ${{ vars.ARTIFACT_SIGNING_RESOURCE_GROUP }}
+      ARTIFACT_SIGNING_ENDPOINT: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+      ARTIFACT_SIGNING_ACCOUNT_NAME: ${{ vars.ARTIFACT_SIGNING_ACCOUNT_NAME }}
+      ARTIFACT_SIGNING_CERTIFICATE_PROFILE: ${{ vars.ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
+      ARTIFACT_SIGNING_CERTIFICATE_SUBJECT: ${{ vars.ARTIFACT_SIGNING_CERTIFICATE_SUBJECT }}
+    steps:
+      - name: Require manual main dispatch and protected configuration before service calls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_EVENT_NAME -cne 'workflow_dispatch' -or $env:GITHUB_REF -cne 'refs/heads/main' -or
+              $env:DEFAULT_BRANCH -cne 'main' -or $env:GITHUB_REPOSITORY -cne 'cbattlegear/fabric-capacity-overage-estimator') {
+            throw 'Signing is manual-only on this repository main default branch.'
+          }
+          foreach ($name in @('AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID',
+            'ARTIFACT_SIGNING_RESOURCE_GROUP', 'ARTIFACT_SIGNING_ENDPOINT', 'ARTIFACT_SIGNING_ACCOUNT_NAME',
+            'ARTIFACT_SIGNING_CERTIFICATE_PROFILE', 'ARTIFACT_SIGNING_CERTIFICATE_SUBJECT')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Required protected artifact-signing variable '$name' is missing."
+            }
+          }
+      - name: Checkout the immutable selected main commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Validate configuration syntax before Azure authentication
+        shell: pwsh
+        run: .\scripts\Test-SigningConfiguration.ps1
+      - name: Restore isolated validation tools
+        shell: pwsh
+        run: .\scripts\Restore-DevelopmentDependencies.ps1
+      - name: Validate PowerShell 7 and Windows PowerShell 5.1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\scripts\Test-Module.ps1 -ResultPath (Join-Path $env:RUNNER_TEMP 'sign-tests-7.xml')
+          & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command '$ErrorActionPreference = "Stop"; .\scripts\Test-Module.ps1 -ResultPath (Join-Path $env:RUNNER_TEMP "sign-tests-51.xml")'
+          if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 validation failed.' }
+      - name: Build and inspect an unsigned offline package before staging
+        shell: pwsh
+        run: .\scripts\Test-Package.ps1 -DestinationPath (Join-Path $env:RUNNER_TEMP 'unsigned-package-check')
+      - name: Create fresh unsigned release staging copies
+        id: stage
+        shell: pwsh
+        run: .\scripts\Stage-Release.ps1
+      - name: Azure CLI OIDC login
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          audience: api://AzureADTokenExchange
+          enable-AzPSSession: false
+      - name: Verify exact regional endpoint and Active Public Trust profile
+        shell: pwsh
+        run: .\scripts\Test-SigningConfiguration.ps1 -ReadAzureResources
+      - name: Sign all shipped staged PowerShell code
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2
+        with:
+          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.ARTIFACT_SIGNING_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ vars.ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
+          files-folder: ${{ steps.stage.outputs.stage_path }}
+          files-folder-filter: ps1,psm1,psd1
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          append-signature: false
+          cache-dependencies: false
+          trace: false
+          exclude-environment-credential: true
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-cli-credential: false
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+      - name: Verify timestamped publisher signatures and package exact signed bytes
+        id: package
+        shell: pwsh
+        run: .\scripts\Complete-SigningRelease.ps1
+      - name: Upload immutable signed package and provenance
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.stage.outputs.artifact_name }}
+          path: ${{ steps.package.outputs.bundle_path }}
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+          compression-level: 0
+      - name: Record the signing run to select for manual publication
+        shell: pwsh
+        env:
+          MODULE_VERSION: ${{ steps.package.outputs.module_version }}
+          PACKAGE_SHA: ${{ steps.package.outputs.package_sha }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          $lines = @(
+            '## Signed FabricCapacityOverage release (not published)',
+            "Version: $env:MODULE_VERSION",
+            "Signing run ID: $env:GITHUB_RUN_ID",
+            "Signing attempt: $env:GITHUB_RUN_ATTEMPT",
+            "Source SHA: $env:GITHUB_SHA",
+            "Package SHA256: $env:PACKAGE_SHA",
+            "Immutable artifact ID: $env:ARTIFACT_ID",
+            "Artifact SHA256: $env:ARTIFACT_DIGEST",
+            'Select this signing run ID in the separate manual Publish module workflow.'
+          )
+          $lines | Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8

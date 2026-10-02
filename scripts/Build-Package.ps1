@@ -1,22 +1,26 @@
 #Requires -Version 7.4
 <#
 .SYNOPSIS
-Build an unsigned offline module package with PSResourceGet; never publish.
+Build an offline module package with PSResourceGet; never sign or publish.
 .DESCRIPTION
 Validates the manifest and compresses only the shipped module folder, including
 its MIT license. The destination must be outside the module source directory.
+Defaults to unsigned source. The manual release pipeline passes an already
+verified signed staging ModulePath; packaging does not modify those bytes.
 #>
 [CmdletBinding()]
 param(
     [ValidateNotNullOrEmpty()]
-    [string] $DestinationPath = (Join-Path (Split-Path $PSScriptRoot -Parent) '.build\packages')
+    [string] $DestinationPath = (Join-Path (Split-Path $PSScriptRoot -Parent) '.build\packages'),
+
+    [ValidateNotNullOrEmpty()]
+    [string] $ModulePath = (Join-Path (Split-Path $PSScriptRoot -Parent) 'FabricCapacityOverage')
 )
 
 $ErrorActionPreference = 'Stop'
-$root = Split-Path $PSScriptRoot -Parent
 $dependencies = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'DevelopmentDependencies.psd1')
 Import-Module Microsoft.PowerShell.PSResourceGet -RequiredVersion $dependencies.'Microsoft.PowerShell.PSResourceGet'
-$modulePath = Join-Path $root 'FabricCapacityOverage'
+$modulePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ModulePath)
 $destination = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($DestinationPath)
 $source = [System.IO.Path]::GetFullPath($modulePath).TrimEnd('\') + '\'
 if ($destination.StartsWith($source, [System.StringComparison]::OrdinalIgnoreCase) -or

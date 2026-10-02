@@ -18,13 +18,16 @@ $root = Split-Path $PSScriptRoot -Parent
 $dependencies = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'DevelopmentDependencies.psd1')
 Import-Module Pester -RequiredVersion $dependencies.Pester
 $package = & (Join-Path $PSScriptRoot 'Build-Package.ps1') -DestinationPath $DestinationPath
-$container = New-PesterContainer -Path (Join-Path $root 'tests\Packaging\Package.Tests.ps1') -Data @{
+$containers = @(New-PesterContainer -Path (Join-Path $root 'tests\Packaging\Package.Tests.ps1') -Data @{
     PackagePath = $package.FullName
+    ManifestPath = Join-Path $root 'FabricCapacityOverage\FabricCapacityOverage.psd1'
+})
+$containers += New-PesterContainer -Path (Join-Path $root 'tests\Packaging\ReleasePackage.Tests.ps1') -Data @{
     ManifestPath = Join-Path $root 'FabricCapacityOverage\FabricCapacityOverage.psd1'
 }
 $configuration = New-PesterConfiguration
 $configuration.Run.Path = @()
-$configuration.Run.Container = @($container)
+$configuration.Run.Container = $containers
 $configuration.Run.PassThru = $true
 $configuration.Output.Verbosity = 'Normal'
 $result = Invoke-Pester -Configuration $configuration

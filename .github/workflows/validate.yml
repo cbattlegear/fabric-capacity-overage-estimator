@@ -16,24 +16,19 @@ jobs:
       matrix:
         shell: [pwsh, powershell]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Save development and runtime dependencies
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $cache = Join-Path $env:RUNNER_TEMP 'overage-development-modules'
-          $null = New-Item -ItemType Directory -Path $cache -Force
-          $dependencies = Import-PowerShellDataFile .\scripts\DevelopmentDependencies.psd1
-          foreach ($name in $dependencies.Keys) {
-            Save-PSResource -Name $name -Version $dependencies[$name] -Repository PSGallery -Path $cache -TrustRepository -Quiet
-          }
-          $manifest = Import-PowerShellDataFile .\FabricCapacityOverage\FabricCapacityOverage.psd1
-          foreach ($dependency in $manifest.RequiredModules) {
-            Save-PSResource -Name $dependency.ModuleName -Version $dependency.ModuleVersion -Repository PSGallery -Path $cache -TrustRepository -Quiet
-          }
-          "PSModulePath=$cache;$env:PSModulePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Manifest, import, help, full analyzer and offline Pester
-        shell: ${{ matrix.shell }}
+          .\scripts\Restore-DevelopmentDependencies.ps1
+      - name: Manifest, import, help, full analyzer and offline Pester on PowerShell 7
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        run: |
+          .\scripts\Test-Module.ps1 -ResultPath (Join-Path $env:RUNNER_TEMP 'TestResults.xml')
+      - name: Manifest, import, help, full analyzer and offline Pester on Windows PowerShell
+        if: matrix.shell == 'powershell'
+        shell: powershell
         run: |
           .\scripts\Test-Module.ps1 -ResultPath (Join-Path $env:RUNNER_TEMP 'TestResults.xml')
       - name: Offline package and isolated package import
@@ -43,7 +38,7 @@ jobs:
           .\scripts\Test-Package.ps1 -DestinationPath (Join-Path $env:RUNNER_TEMP 'overage-packages')
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: test-results-${{ matrix.shell }}
           path: ${{ runner.temp }}\TestResults.xml

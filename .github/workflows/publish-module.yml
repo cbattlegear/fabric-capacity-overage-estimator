@@ -1,0 +1,74 @@
+name: Publish module manually
+
+on:
+  workflow_dispatch:
+    inputs:
+      signing_run_id:
+        description: Successful manual main signing workflow run ID (not an artifact ID)
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: powershell-gallery-FabricCapacityOverage
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: windows-2022
+    environment: powershell-gallery
+    permissions:
+      contents: read
+      actions: read
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      SIGNING_RUN_ID: ${{ inputs.signing_run_id }}
+      ARTIFACT_SIGNING_CERTIFICATE_SUBJECT: ${{ vars.ARTIFACT_SIGNING_CERTIFICATE_SUBJECT }}
+    steps:
+      - name: Require manual main dispatch and a safe exact signing run ID
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_EVENT_NAME -cne 'workflow_dispatch' -or $env:GITHUB_REF -cne 'refs/heads/main' -or
+              $env:DEFAULT_BRANCH -cne 'main' -or $env:GITHUB_REPOSITORY -cne 'cbattlegear/fabric-capacity-overage-estimator') {
+            throw 'Publication is manual-only on this repository main default branch.'
+          }
+          $id = [uint64] 0
+          if ($env:SIGNING_RUN_ID -notmatch '^[0-9]{1,20}$' -or
+              -not [uint64]::TryParse($env:SIGNING_RUN_ID, [ref] $id) -or $id -eq 0) {
+            throw 'signing_run_id must be a positive decimal integer.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:ARTIFACT_SIGNING_CERTIFICATE_SUBJECT)) {
+            throw 'Protected publisher certificate Subject configuration is required.'
+          }
+      - name: Checkout trusted main verification helpers, never source code from input
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Restore isolated package-publishing tool only
+        shell: pwsh
+        run: .\scripts\Restore-DevelopmentDependencies.ps1 -Purpose Publishing
+      - name: Validate source run, immutable archive digest, paths, signatures and provenance
+        id: verify
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .\scripts\Receive-SigningRelease.ps1
+      - name: Preserve the exact verified signed payload for audit
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: FabricCapacityOverage-publication-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.verify.outputs.bundle_path }}
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 14
+          compression-level: 0
+      - name: Revalidate and publish the SAME signed nupkg, never rebuild or retry
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PSGALLERY_API_KEY: ${{ secrets.PSGALLERY_API_KEY }}
+        run: .\scripts\Publish-SigningRelease.ps1 -Confirm:$false
